@@ -17,7 +17,7 @@ const { client: redis } = require('./redis');
 const { extractApiKey } = require('./auth');
 const { buildAccountQuota } = require('./quota');
 
-const PORT = parseInt(process.env.PORT, 10) || 8788;
+const PORT = parseInt(process.env.PORT, 10) || 11408;
 const ACCESS_LOG = (process.env.ACCESS_LOG || 'true').toLowerCase() !== 'false';
 
 const app = express();

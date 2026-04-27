@@ -19,7 +19,7 @@ CRS_DIR="${CRS_DIR:-$HOME/claude-relay-service}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/crs-quota-reader}"
 APP_DIR="$INSTALL_DIR/app"
 REPO_URL="${REPO_URL:-https://github.com/jialechen7/crs-quota-reader.git}"
-PORT="${PORT:-8788}"
+PORT="${PORT:-11408}"
 PM2_NAME="crs-quota-reader"
 LOG_FILE="$INSTALL_DIR/service.log"
 PID_FILE="$INSTALL_DIR/service.pid"
@@ -183,7 +183,7 @@ runner_call() {
 }
 
 probe_health() {
-  local p="${PORT:-8788}"
+  local p="${PORT:-11408}"
   for _ in 1 2 3 4 5; do
     if have curl && curl -fsS --max-time 1 "http://127.0.0.1:$p/v1/health" >/dev/null 2>&1; then
       ok "健康检查通过:http://127.0.0.1:$p/v1/health"
@@ -268,7 +268,7 @@ crs-quota-reader · 安装/管理脚本
 环境变量:
   CRS_DIR        CRS 根目录(默认 $HOME/claude-relay-service)
   INSTALL_DIR    本服务安装到哪(默认 $HOME/crs-quota-reader)
-  PORT           监听端口(默认 8788)
+  PORT           监听端口(默认 11408)
   REPO_URL       仓库 URL(默认 jialechen7/crs-quota-reader)
 EOF
 }

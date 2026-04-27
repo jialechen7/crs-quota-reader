@@ -5,7 +5,7 @@ services:
     container_name: crs-quota-reader
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8788:8788"
+      - "127.0.0.1:11408:11408"
     env_file:
       - .env
     # If your CRS runs in another compose project on a named network,

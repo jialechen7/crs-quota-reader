@@ -96,7 +96,7 @@ curl -fsSL https://raw.githubusercontent.com/jialechen7/crs-quota-reader/main/ma
 2. 克隆本仓库到 `~/crs-quota-reader/app/`
 3. 从 CRS 的 .env 同步 `REDIS_*` / `ENCRYPTION_KEY` / `TIMEZONE_OFFSET` 到本服务的 .env
 4. 装 npm 依赖
-5. 用 PM2(优先)或 nohup 启动,默认 8788 端口
+5. 用 PM2(优先)或 nohup 启动,默认 11408 端口
 6. `curl /v1/health` 自检通过则收尾
 
 后续管理:
@@ -147,7 +147,7 @@ node src/server.js
 ```bash
 #!/usr/bin/env bash
 KEY="$ANTHROPIC_AUTH_TOKEN"          # 你 cc 当前用的 API key
-READER_BASE="http://127.0.0.1:8788"  # 本服务的 base url
+READER_BASE="http://127.0.0.1:11408"  # 本服务的 base url
 INFO=$(curl -s --max-time 1.5 -H "Authorization: Bearer $KEY" "$READER_BASE/v1/account-quota" || echo '{}')
 USED=$(printf '%s' "$INFO" | jq -r '.sessionWindow.usage.allTokens // 0')
 LEFT_MIN=$(printf '%s' "$INFO" | jq -r '.sessionWindow.remainingMinutes // 0')
