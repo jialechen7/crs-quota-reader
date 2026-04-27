@@ -5,14 +5,11 @@
 //                              caller's API key (Authorization: Bearer ...
 //                              or x-api-key)
 
-require('node:fs');
-// dotenv is intentionally optional: in container deployments env is injected
-// directly, locally we load .env if present.
-try {
-  require('dotenv').config();
-} catch (_) {
-  // dotenv not installed — fine, env must come from the runtime.
-}
+// Load .env from cwd before anything else reads process.env. Required when the
+// service is started via `node`, `pm2 start`, or `nohup` — those don't read
+// .env automatically. Docker compose injects env via env_file and this becomes
+// a no-op (no .env file present in the container, dotenv just does nothing).
+require('dotenv').config();
 
 const express = require('express');
 
