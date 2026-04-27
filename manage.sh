@@ -182,8 +182,73 @@ runner_call() {
   "${r}_${action}" "$@"
 }
 
+# 读 .env 里的 PORT,落到 manage.sh 启动时 PORT,再落到默认 11408。
+effective_port() {
+  local p
+  if [ -f "$APP_DIR/.env" ]; then
+    p="$(read_env_var "$APP_DIR/.env" PORT)"
+  fi
+  echo "${p:-${PORT:-11408}}"
+}
+
+# 找出占着指定端口的 PID(优先 ss,fallback lsof);找不到返回空。
+port_owner_pid() {
+  local p="$1"
+  if have ss; then
+    ss -lntpH 2>/dev/null | awk -v key=":$p" '$4 ~ key {print $7}' \
+      | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2
+  elif have lsof; then
+    lsof -tiTCP:"$p" -sTCP:LISTEN 2>/dev/null | head -1
+  fi
+}
+
+# 启动前自愈:清掉所有指向 $APP_DIR 的旧 PM2 entry + 孤儿 node 进程 + stale pid 文件。
+# 安全保证:只识别命令行/cwd 含 $APP_DIR 路径的进程,绝不会误杀 CRS 或其他 node 服务。
+cleanup_stale() {
+  # 1. PM2 中所有 script/cwd 落在 $APP_DIR 下的 entry(不止 name 匹配)
+  if have pm2 && have node; then
+    local victims
+    victims="$(pm2 jlist 2>/dev/null \
+      | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{try{const a=JSON.parse(b);const dir=process.argv[1];for(const p of a){const env=p.pm2_env||{};const s=env.pm_exec_path||p.script||"";const c=env.pm_cwd||"";if((dir&&s.startsWith(dir))||(dir&&c.startsWith(dir)))console.log(p.name||p.pm_id);}}catch(_){}});' "$APP_DIR" 2>/dev/null || true)"
+    if [ -n "$victims" ]; then
+      info "清理 PM2 中指向 $APP_DIR 的旧 entry..."
+      while IFS= read -r name; do
+        [ -n "$name" ] && pm2 delete "$name" >/dev/null 2>&1 || true
+      done <<<"$victims"
+    fi
+  fi
+  # 2. 直跑的 node 孤儿进程(命令行限制在 $APP_DIR 路径下,绝对不会撞 CRS)
+  if pgrep -f "$APP_DIR/src/server.js" >/dev/null 2>&1; then
+    info "清理裸 node 孤儿进程..."
+    pkill -f "$APP_DIR/src/server.js" 2>/dev/null || true
+    sleep 0.5
+    pkill -9 -f "$APP_DIR/src/server.js" 2>/dev/null || true
+  fi
+  # 3. 失效 pid 文件
+  if [ -f "$PID_FILE" ] && ! kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
+    rm -f "$PID_FILE"
+  fi
+}
+
+# 启动前确保端口可用。如果是本服务的旧实例 → 杀掉;如果是别的进程(可能是 CRS / 其他)
+# → die 让用户决定,绝不擅自 kill。
+ensure_port_free() {
+  local p="$1"
+  local owner; owner="$(port_owner_pid "$p" 2>/dev/null || true)"
+  [ -z "$owner" ] && return 0
+  local cmd; cmd="$(ps -p "$owner" -o cmd= 2>/dev/null || true)"
+  if [[ "$cmd" == *"$APP_DIR/src/server.js"* ]]; then
+    info "端口 $p 被本服务旧进程 (pid=$owner) 占着,kill 之"
+    kill "$owner" 2>/dev/null || true
+    sleep 0.5
+    kill -9 "$owner" 2>/dev/null || true
+    return 0
+  fi
+  die "端口 $p 被其他进程占用 (pid=$owner: $cmd);请改 .env 里 PORT 或停掉那个进程后重试"
+}
+
 probe_health() {
-  local p="${PORT:-11408}"
+  local p; p="$(effective_port)"
   for _ in 1 2 3 4 5; do
     if have curl && curl -fsS --max-time 1 "http://127.0.0.1:$p/v1/health" >/dev/null 2>&1; then
       ok "健康检查通过:http://127.0.0.1:$p/v1/health"
@@ -202,21 +267,24 @@ cmd_install() {
   clone_or_update_repo
   write_env
   install_deps
+  cleanup_stale
+  ensure_port_free "$(effective_port)"
   local r; r="$(pick_runner)"; remember_runner "$r"
   info "启动方式:$r"
   case "$r" in
-    pm2)   pm2_delete; pm2_start ;;
-    nohup) nohup_stop;  nohup_start ;;
+    pm2)   pm2_start ;;
+    nohup) nohup_start ;;
   esac
   sleep 1
   probe_health || true
+  local p; p="$(effective_port)"
   cat <<EOF
 
 $(c_grn '✓ 安装完成')
 
   📌 Quick test:
        curl -H "Authorization: Bearer <your-cc-key>" \\
-            http://127.0.0.1:$PORT/v1/account-quota | jq
+            http://127.0.0.1:$p/v1/account-quota | jq
 
   📝 管理命令(在 $INSTALL_DIR/manage.sh 处):
        ./manage.sh start | stop | restart | status | logs | update | uninstall
@@ -225,11 +293,26 @@ $(c_grn '✓ 安装完成')
 EOF
 }
 
-cmd_start()      { runner_call start;   probe_health || true; }
-cmd_stop()       { runner_call stop;    ok "已停"; }
-cmd_restart()    { runner_call restart; probe_health || true; }
-cmd_status()     { runner_call status; }
-cmd_logs()       { runner_call logs "${1:-100}"; }
+cmd_start()  {
+  cleanup_stale
+  ensure_port_free "$(effective_port)"
+  runner_call start
+  probe_health || true
+}
+cmd_stop()    { runner_call stop; cleanup_stale; ok "已停"; }
+cmd_restart() {
+  cleanup_stale
+  ensure_port_free "$(effective_port)"
+  # 走完 cleanup 后等同 start;比沿用 pm2/nohup_restart 更结实(不会卡在旧 socket 上)
+  local r; r="$(pick_runner)"
+  case "$r" in
+    pm2)   pm2_start ;;
+    nohup) nohup_start ;;
+  esac
+  probe_health || true
+}
+cmd_status()  { runner_call status; }
+cmd_logs()    { runner_call logs "${1:-100}"; }
 cmd_update() {
   clone_or_update_repo
   install_deps
