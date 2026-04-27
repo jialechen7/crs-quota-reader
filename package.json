@@ -1,0 +1,19 @@
+{
+  "name": "crs-quota-reader",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only sidecar for claude-relay-service: query upstream account quota by API key, directly from Redis (does not modify CRS).",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "ioredis": "^5.4.1"
+  }
+}
