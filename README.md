@@ -80,10 +80,35 @@
 
 ### 0. 前置条件
 
+- **claude-relay-service 已经装好并能跑**(本服务硬依赖它)。如果还没装,先按 [pincc.ai/manage.sh](https://pincc.ai/manage.sh) 走一遍 CRS 的安装
 - 与 CRS 共享同一个 Redis(host/port/auth/db 一致)
 - **拿到 CRS 的 `ENCRYPTION_KEY`**(在 `~/claude-relay-service/app/.env` 里,与 CRS 设置时生成的一致)。`sha256(apiKey + ENCRYPTION_KEY)` 是 CRS 唯一的 key 反查方式,不一致就**所有 API key 都会被判 unknown**
 
-### 1. Docker compose(推荐)
+### 1. 一键安装(推荐 · curl + manage.sh)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jialechen7/crs-quota-reader/main/manage.sh \
+  -o manage.sh && chmod +x manage.sh && ./manage.sh install
+```
+
+脚本会:
+1. 检查 `~/claude-relay-service/app/.env` 是否存在(找不到直接报错退出,不会破坏 CRS)
+2. 克隆本仓库到 `~/crs-quota-reader/app/`
+3. 从 CRS 的 .env 同步 `REDIS_*` / `ENCRYPTION_KEY` / `TIMEZONE_OFFSET` 到本服务的 .env
+4. 装 npm 依赖
+5. 用 PM2(优先)或 nohup 启动,默认 8788 端口
+6. `curl /v1/health` 自检通过则收尾
+
+后续管理:
+
+```bash
+~/crs-quota-reader/manage.sh start | stop | restart | status | logs | update | uninstall
+~/crs-quota-reader/manage.sh reload-env   # 改了 CRS .env 后重新同步配置
+```
+
+可用环境变量(install 时也吃):`CRS_DIR` / `INSTALL_DIR` / `PORT` / `REPO_URL`。
+
+### 2. Docker compose(手动)
 
 ```bash
 cd /path/to/crs-quota-reader
@@ -98,7 +123,7 @@ docker compose logs -f
 
 如果 CRS 也是 docker compose 起的,且 redis 在 CRS 的私有网络,把 `docker-compose.yml` 末尾的 `networks` 段取消注释,把 `crs-net` 改成 CRS 所在 network 名(`docker network ls` 能看到)。
 
-### 2. PM2
+### 3. PM2(手动)
 
 ```bash
 npm install
@@ -106,7 +131,7 @@ pm2 start src/server.js --name crs-quota-reader --env-file .env
 pm2 save
 ```
 
-### 3. Systemd / 裸 node
+### 4. Systemd / 裸 node
 
 ```bash
 npm install
